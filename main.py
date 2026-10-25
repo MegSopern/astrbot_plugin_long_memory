@@ -86,6 +86,7 @@ class Main(Star):
         self.store: MemoryStore | None = None
         self.state: StateStore | None = None
         self._tasks: set[asyncio.Task] = set()
+        self._extract_task_uids: dict[asyncio.Task, str] = {}
         self._seen: dict[str, tuple[str, float]] = {}
         self._warned_no_textpart = False
 
@@ -189,15 +190,26 @@ class Main(Star):
             return
         task = asyncio.create_task(record(self.store, uid, candidates, self.cfg))
         self._tasks.add(task)
+        self._extract_task_uids[task] = uid
         task.add_done_callback(self._on_extract_done)
 
     def _on_extract_done(self, task: asyncio.Task) -> None:
         self._tasks.discard(task)
+        self._extract_task_uids.pop(task, None)
         if task.cancelled():
             return
         exc = task.exception()
         if exc is not None:  # 只记类型，不记正文，避免隐私进日志
             logger.warning("%s extract failed: %s: %s", TAG, type(exc).__name__, exc)
+
+    async def _cancel_extract_tasks(self, uid: str) -> None:
+        tasks = [
+            task for task in self._tasks if self._extract_task_uids.get(task) == uid
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # ── 查询 / 清除 ─────────────────────────────────────────────────
     # 权限在方法内判：不带 QQ 谁都能操作自己；带了 QQ 只有超级管理员能指向他人。
@@ -244,6 +256,7 @@ class Main(Star):
         if err:
             yield event.plain_result(err)
             return
+        await self._cancel_extract_tasks(target)
         count = await self.store.clear(target)
         yield event.plain_result(f"已清除 {count} 条记忆。")
 
@@ -545,6 +558,7 @@ class Main(Star):
         usage = f"用法：/{cmd} 或 /{cmd} <QQ号>"
 
         at_ids: list[str] = []
+        at_parse_ok = bool(_AT_TYPES)
         try:
             self_id = str(event.get_self_id() or "")
             for seg in event.get_messages() or []:
@@ -552,8 +566,9 @@ class Main(Star):
                     uid = str(getattr(seg, "qq", "") or "")
                     if uid.isdigit() and uid != self_id:  # @全体成员 / @机器人 不算目标
                         at_ids.append(uid)
-        except Exception:  # 平台事件实现不全时按"没 @ 人"处理
+        except Exception:  # 平台事件实现不全时保守地标记为解析失败
             at_ids = []
+            at_parse_ok = False
         if len(at_ids) > 1:
             return "", f"一次只能指定一个人，这条消息 @ 了 {len(at_ids)} 个。"
 
@@ -562,6 +577,12 @@ class Main(Star):
         elif arg.isdigit():
             target = arg
         elif not arg:
+            try:
+                message_text = str(event.message_str or "")
+            except Exception:
+                message_text = ""
+            if not at_parse_ok and "@" in message_text:
+                return "", f"消息中的 @ 提及无法解析，请改用 /{cmd} <QQ号>。"
             return (me, "") if me else ("", usage)
         else:
             return "", usage
