@@ -1,0 +1,103 @@
+{
+  "enable": {
+    "description": "总开关",
+    "type": "bool",
+    "default": true
+  },
+  "extract_enabled": {
+    "description": "从用户消息里抽取记忆",
+    "type": "bool",
+    "default": true
+  },
+  "inject_enabled": {
+    "description": "把记忆注入每轮请求",
+    "type": "bool",
+    "default": true
+  },
+  "max_items": {
+    "description": "每个用户最多保存条数",
+    "type": "int",
+    "default": 30,
+    "slider": { "min": 5, "max": 100, "step": 1 },
+    "hint": "超出后按「非粘性 → 未置顶 → 命中少 → 最旧」淘汰"
+  },
+  "inject_max_items": {
+    "description": "单次注入最多几条",
+    "type": "int",
+    "default": 30,
+    "slider": { "min": 1, "max": 50, "step": 1 },
+    "hint": "默认 30 条，配合 max_items 默认值等同全量注入"
+  },
+  "inject_max_chars": {
+    "description": "单次注入正文总字数上限",
+    "type": "int",
+    "default": 500,
+    "slider": { "min": 40, "max": 800, "step": 10 },
+    "hint": "整块上限 = 本值 + 58 字符头尾标签，默认约 558 字符"
+  },
+  "ttl_days": {
+    "description": "记忆保留天数，0 表示不过期",
+    "type": "int",
+    "default": 180,
+    "hint": "称呼／居住／工作属于粘性信息，不受此限制"
+  },
+  "allow_group_cmd": {
+    "description": "允许在群聊里使用 /记忆 与 /忘记",
+    "type": "bool",
+    "default": false,
+    "hint": "默认关闭，避免在群里公开他人偏好；/导出 与 /导入 永远只在私聊可用"
+  },
+  "panel_base_url": {
+    "description": "面板访问地址（用于拼导出下载链接）",
+    "type": "string",
+    "default": "",
+    "obvious_hint": true,
+    "hint": "例如 http://1.2.3.4:6185 或 https://bot.example.com，不要带结尾斜杠。留空则 /导出 只回复相对路径 /api/file/<token>"
+  },
+  "export_token_ttl": {
+    "description": "导出下载链接有效期（秒）",
+    "type": "int",
+    "default": 3600,
+    "slider": { "min": 300, "max": 86400, "step": 300 },
+    "hint": "AstrBot 重启后所有下载链接立即失效，需重新 /导出"
+  },
+  "export_keep": {
+    "description": "exports 目录最多保留几个导出包",
+    "type": "int",
+    "default": 5,
+    "slider": { "min": 1, "max": 50, "step": 1 }
+  },
+  "export_ttl_days": {
+    "description": "导出包保留天数，0 表示不按时间清理",
+    "type": "int",
+    "default": 7,
+    "slider": { "min": 0, "max": 90, "step": 1 }
+  },
+  "import_zip": {
+    "description": "导入包（zip）",
+    "type": "file",
+    "default": [],
+    "file_types": ["zip"],
+    "hint": "上传后必须点「保存」；随后在私聊里发 /导入 或 /导入 合并。上传目录：data/plugin_data/astrbot_plugin_long_memory/files/import_zip/"
+  },
+  "import_default_mode": {
+    "description": "/导入 不带参数时的模式",
+    "type": "string",
+    "default": "replace",
+    "options": ["replace", "merge"],
+    "labels": ["覆盖（以包为准，删除包外用户）", "合并（只增改，不删）"],
+    "hint": "仍可用 /导入 覆盖 或 /导入 合并 临时覆盖此设置"
+  },
+  "import_backup": {
+    "description": "导入前自动备份当前记忆",
+    "type": "bool",
+    "default": true,
+    "hint": "备份写入 backups/，不参与 exports 的保留策略，需手动清理"
+  },
+  "import_max_mb": {
+    "description": "单个导入包大小上限（MB）",
+    "type": "int",
+    "default": 32,
+    "slider": { "min": 1, "max": 200, "step": 1 }
+  }
+}
