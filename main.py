@@ -60,7 +60,7 @@ except Exception:  # pragma: no cover
     TextPart = None  # type: ignore[assignment]
 
 TAG = "[long_memory]"
-PLUGIN_VERSION = "0.2.2"
+PLUGIN_VERSION = "0.3.0"
 DEDUPE_WINDOW = 60  # 同一句话 60 秒内只抽一次
 DISPLAY_LIMIT = 30  # /记忆 最多列几行
 INJECT_TIMEOUT = 0.3  # 注入读盘 + 排序的硬上限（秒）
@@ -190,19 +190,19 @@ class Main(Star):
             logger.warning("%s extract failed: %s: %s", TAG, type(exc).__name__, exc)
 
     # ── 查询 / 清除 ─────────────────────────────────────────────────
+    # 权限在方法内判：不带 QQ 谁都能操作自己；带了 QQ 只有超级管理员能指向他人。
     @filter.command("记忆")
-    @filter.permission_type(filter.PermissionType.ADMIN)
     async def memory_cmd(self, event: AstrMessageEvent, qq: str = ""):
-        """查看长期记忆。用法：/记忆 或 /记忆 <QQ号>"""
+        """查看长期记忆。用法：/记忆 或 /记忆 <QQ号>（后者仅超级管理员）"""
         if not self._cmd_allowed(event):
             yield event.plain_result("这个指令请在私聊里用。")
             return
         if self.store is None:
             yield event.plain_result("记忆存储没初始化起来，先看日志。")
             return
-        target = (qq or _uid_of(event)).strip()
-        if not target.isdigit():
-            yield event.plain_result("用法：/记忆 或 /记忆 <QQ号>")
+        target, err = self._resolve_target(event, qq, "记忆")
+        if err:
+            yield event.plain_result(err)
             return
         items = self.store.load_sync(target)
         if not items:
@@ -222,18 +222,17 @@ class Main(Star):
         yield event.plain_result(head + "\n" + "\n".join(lines))
 
     @filter.command("忘记")
-    @filter.permission_type(filter.PermissionType.ADMIN)
     async def forget_cmd(self, event: AstrMessageEvent, qq: str = ""):
-        """清除某个人的长期记忆。用法：/忘记 或 /忘记 <QQ号>"""
+        """清除某个人的长期记忆。用法：/忘记 或 /忘记 <QQ号>（后者仅超级管理员）"""
         if not self._cmd_allowed(event):
             yield event.plain_result("这个指令请在私聊里用。")
             return
         if self.store is None:
             yield event.plain_result("记忆存储没初始化起来，先看日志。")
             return
-        target = (qq or _uid_of(event)).strip()
-        if not target.isdigit():
-            yield event.plain_result("用法：/忘记 或 /忘记 <QQ号>")
+        target, err = self._resolve_target(event, qq, "忘记")
+        if err:
+            yield event.plain_result(err)
             return
         count = await self.store.clear(target)
         yield event.plain_result(f"已清除 {count} 条记忆。")
@@ -502,6 +501,30 @@ class Main(Star):
         except Exception:
             in_group = False
         return (not in_group) or cfg_bool(self.cfg, "allow_group_cmd", False)
+
+    def _resolve_target(self, event: AstrMessageEvent, qq: str, cmd: str) -> tuple[str, str]:
+        """解析指令目标，返回 (uid, 错误提示)；错误提示非空时调用方应中止。
+
+        不带 QQ → 目标是自己，所有人可用；带了 QQ → 只有超级管理员能指向他人。
+        「超级管理员」= event.is_admin()，即 AstrBot 配置里的 admins_id 全局管理员，
+        与 PermissionType.ADMIN 判据同源。
+        """
+        me = _uid_of(event)
+        arg = (qq or "").strip()
+        usage = f"用法：/{cmd} 或 /{cmd} <QQ号>"
+        if not arg:
+            return (me, "") if me else ("", usage)
+        if not arg.isdigit():
+            return "", usage
+        if arg == me:  # 显式报自己的号，等同不带参数
+            return arg, ""
+        try:
+            allowed = bool(event.is_admin())
+        except Exception:  # 平台事件实现不全时按无权限处理
+            allowed = False
+        if allowed:
+            return arg, ""
+        return "", f"只能操作自己的记忆；要看或清别人的，请让超级管理员执行 /{cmd} <QQ号>。"
 
     async def terminate(self) -> None:
         for task in list(self._tasks):
