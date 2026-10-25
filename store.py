@@ -331,7 +331,6 @@ class MemoryStore:
             "format_version": 1,
             "schema_version": SCHEMA_VERSION,
             "plugin": "astrbot_plugin_long_memory",
-            "plugin_version": "",
             "exported_at": now,
             "exported_by": "",
             "partial": False,

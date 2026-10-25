@@ -63,7 +63,6 @@ except Exception:  # pragma: no cover
     _AT_TYPES = ()
 
 TAG = "[long_memory]"
-PLUGIN_VERSION = "0.4.0"
 DEDUPE_WINDOW = 60  # 同一句话 60 秒内只抽一次
 DISPLAY_LIMIT = 30  # /记忆 最多列几行
 INJECT_TIMEOUT = 0.3  # 注入读盘 + 排序的硬上限（秒）
@@ -114,9 +113,8 @@ class Main(Star):
             logger.warning("%s 清理导出目录失败：%s", TAG, exc)
 
         logger.info(
-            "%s loaded v%s (extract=%s inject=%s max_items=%s dir=%s)",
+            "%s loaded (extract=%s inject=%s max_items=%s dir=%s)",
             TAG,
-            PLUGIN_VERSION,
             cfg_bool(self.cfg, "extract_enabled", True),
             cfg_bool(self.cfg, "inject_enabled", True),
             cfg_int(self.cfg, "max_items", 30, 5, 100),
@@ -273,7 +271,6 @@ class Main(Star):
                     build_archive,
                     dest,
                     data,
-                    plugin_version=PLUGIN_VERSION,
                     exported_by=_uid_of(event),
                     tmp_dir=self.store.tmp_dir,
                 )
