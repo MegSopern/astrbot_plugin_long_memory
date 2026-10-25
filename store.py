@@ -215,11 +215,12 @@ class MemoryStore:
         self.save_sync(uid, items)
 
     async def clear(self, uid: str) -> int:
-        async with self.lock(uid):
-            count = len(self.load_sync(uid))
-            with contextlib.suppress(FileNotFoundError, ValueError):
-                self.path_of(uid).unlink()
-            return count
+        async with self.bulk:
+            async with self.lock(uid):
+                count = len(self.load_sync(uid))
+                with contextlib.suppress(FileNotFoundError, ValueError):
+                    self.path_of(uid).unlink()
+                return count
 
     def _quarantine(self, path: Path, why: str) -> None:
         dst = path.with_name(f"{path.name}.corrupt.{_now()}")
@@ -331,7 +332,6 @@ class MemoryStore:
             "format_version": 1,
             "schema_version": SCHEMA_VERSION,
             "plugin": "astrbot_plugin_long_memory",
-            "plugin_version": "",
             "exported_at": now,
             "exported_by": "",
             "partial": False,

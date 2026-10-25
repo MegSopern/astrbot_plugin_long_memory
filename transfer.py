@@ -92,7 +92,6 @@ def build_archive(
     dest: str | Path,
     data: dict[str, list[dict[str, Any]]],
     *,
-    plugin_version: str,
     exported_by: str,
     tmp_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -121,7 +120,6 @@ def build_archive(
         "format_version": FORMAT_VERSION,
         "schema_version": SCHEMA_VERSION,
         "plugin": "astrbot_plugin_long_memory",
-        "plugin_version": plugin_version,
         "exported_at": int(time.time()),
         "exported_by": str(exported_by),
         "partial": False,
