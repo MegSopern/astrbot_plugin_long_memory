@@ -1,14 +1,10 @@
-"""长期记忆插件入口（文件存储版）。
+"""
+长期记忆插件入口（文件存储版）。
 
-一条钩子做两件事：
-1. 请求前把记忆拼成 `<user_memory>` 块，append 到 extra_user_content_parts（mark_as_temp，不落历史）
+钩子做的两件事：
+1. 请求前把记忆拼成 `<user_memory>` 块，append 到 extra_user_content_parts（mark_as_temp）
 2. 从本轮用户消息里按规则抽偏好，异步写进插件数据目录（不阻塞回复）
 
-数据落在 `data/plugin_data/<插件名>/`：
-- 一人一文件 `memory/<QQ>.json`
-- 卸载时勾「同时删除插件持久化数据」即连数据一起删
-
-类名必须是 Main 或以 Plugin 结尾，否则 AstrBot 会静默跳过这个插件。
 """
 
 from __future__ import annotations
@@ -59,8 +55,15 @@ try:  # 4.24+ 才有；缺失时整体降级为"不注入"，不影响回复
 except Exception:  # pragma: no cover
     TextPart = None  # type: ignore[assignment]
 
+try:  # @ 段类型：老版本没有该模块时退化为空元组，isinstance 恒为 False
+    from astrbot.api.message_components import At as _AtSegment
+
+    _AT_TYPES: tuple[type, ...] = (_AtSegment,)
+except Exception:  # pragma: no cover
+    _AT_TYPES = ()
+
 TAG = "[long_memory]"
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_VERSION = "0.4.0"
 DEDUPE_WINDOW = 60  # 同一句话 60 秒内只抽一次
 DISPLAY_LIMIT = 30  # /记忆 最多列几行
 INJECT_TIMEOUT = 0.3  # 注入读盘 + 排序的硬上限（秒）
@@ -96,7 +99,9 @@ class Main(Star):
             self.store.prepare()
             self.state = StateStore(self.data_dir)
         except Exception as exc:  # noqa: BLE001
-            logger.error("%s 初始化失败，记忆功能停用：%s: %s", TAG, type(exc).__name__, exc)
+            logger.error(
+                "%s 初始化失败，记忆功能停用：%s: %s", TAG, type(exc).__name__, exc
+            )
             self.store = None
             return
 
@@ -110,7 +115,8 @@ class Main(Star):
 
         logger.info(
             "%s loaded v%s (extract=%s inject=%s max_items=%s dir=%s)",
-            TAG, PLUGIN_VERSION,
+            TAG,
+            PLUGIN_VERSION,
             cfg_bool(self.cfg, "extract_enabled", True),
             cfg_bool(self.cfg, "inject_enabled", True),
             cfg_int(self.cfg, "max_items", 30, 5, 100),
@@ -119,7 +125,9 @@ class Main(Star):
 
     # ── 钩子 ────────────────────────────────────────────────────────
     @filter.on_llm_request()
-    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
+    async def on_llm_request(
+        self, event: AstrMessageEvent, req: ProviderRequest
+    ) -> None:
         """注意：必须是 async def 且不能 yield。两段各自兜异常，互不牵连。"""
         if not cfg_bool(self.cfg, "enable", True) or self.store is None:
             return
@@ -139,13 +147,17 @@ class Main(Star):
             try:
                 self._schedule_extract(uid, event)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("%s schedule failed: %s: %s", TAG, type(exc).__name__, exc)
+                logger.warning(
+                    "%s schedule failed: %s: %s", TAG, type(exc).__name__, exc
+                )
 
     async def _inject(self, uid: str, req: ProviderRequest) -> None:
         if TextPart is None:
             if not self._warned_no_textpart:
                 self._warned_no_textpart = True
-                logger.warning("%s TextPart unavailable, memory injection disabled", TAG)
+                logger.warning(
+                    "%s TextPart unavailable, memory injection disabled", TAG
+                )
             return
         block = await asyncio.wait_for(
             build_injection(self.store, uid, self.cfg, query=self._query_of(req)),
@@ -193,7 +205,7 @@ class Main(Star):
     # 权限在方法内判：不带 QQ 谁都能操作自己；带了 QQ 只有超级管理员能指向他人。
     @filter.command("记忆")
     async def memory_cmd(self, event: AstrMessageEvent, qq: str = ""):
-        """查看长期记忆。用法：/记忆 或 /记忆 <QQ号>（后者仅超级管理员）"""
+        """查看长期记忆。用法：/记忆、/记忆 <QQ号>、/记忆 @某人（后两者仅超级管理员）"""
         if not self._cmd_allowed(event):
             yield event.plain_result("这个指令请在私聊里用。")
             return
@@ -223,7 +235,7 @@ class Main(Star):
 
     @filter.command("忘记")
     async def forget_cmd(self, event: AstrMessageEvent, qq: str = ""):
-        """清除某个人的长期记忆。用法：/忘记 或 /忘记 <QQ号>（后者仅超级管理员）"""
+        """清除某个人的长期记忆。用法：/忘记、/忘记 <QQ号>、/忘记 @某人（后两者仅超级管理员）"""
         if not self._cmd_allowed(event):
             yield event.plain_result("这个指令请在私聊里用。")
             return
@@ -258,7 +270,9 @@ class Main(Star):
             dest = self.store.exports_dir / name
             try:
                 manifest = await asyncio.to_thread(
-                    build_archive, dest, data,
+                    build_archive,
+                    dest,
+                    data,
                     plugin_version=PLUGIN_VERSION,
                     exported_by=_uid_of(event),
                     tmp_dir=self.store.tmp_dir,
@@ -278,7 +292,9 @@ class Main(Star):
         counts = manifest.get("counts") or {}
         link = await self._make_link(dest)
         hint = "1 小时内有效；拿到链接的人无需登录即可下载，别外传"
-        body = f"已导出 {counts.get('users', 0)} 人 / {counts.get('items', 0)} 条\n{name}"
+        body = (
+            f"已导出 {counts.get('users', 0)} 人 / {counts.get('items', 0)} 条\n{name}"
+        )
         if link:
             body += f"\n{hint}：\n{link}"
         else:
@@ -333,7 +349,9 @@ class Main(Star):
 
         try:
             manifest, data, stats = await asyncio.to_thread(
-                read_archive, path, max_mb=cfg_int(self.cfg, "import_max_mb", 32, 1, 200)
+                read_archive,
+                path,
+                max_mb=cfg_int(self.cfg, "import_max_mb", 32, 1, 200),
             )
         except ArchiveError as exc:
             yield event.plain_result(f"包不合法：{exc}")
@@ -350,16 +368,22 @@ class Main(Star):
         backup_path = None
         if cfg_bool(self.cfg, "import_backup", True):
             try:
-                backup_path = await asyncio.to_thread(self.store.backup, "pre_import", mode_key)
+                backup_path = await asyncio.to_thread(
+                    self.store.backup, "pre_import", mode_key
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("%s backup failed: %s", TAG, exc)
-                yield event.plain_result(f"备份当前数据失败（{type(exc).__name__}），已中止导入。")
+                yield event.plain_result(
+                    f"备份当前数据失败（{type(exc).__name__}），已中止导入。"
+                )
                 return
 
         async with self.store.bulk:
             if mode_key == "replace":
                 delete_absent = not bool(manifest.get("partial", False))
-                written, deleted = await self.store.write_many(data, delete_absent=delete_absent)
+                written, deleted = await self.store.write_many(
+                    data, delete_absent=delete_absent
+                )
                 if delete_absent:
                     detail = f"写入 {written} 人；删除本地 {deleted} 人（不在包内）"
                 else:
@@ -370,8 +394,10 @@ class Main(Star):
                     local = self.store.load_sync(uid)
                     merged, st = merge_import(local, incoming)
                     self.store.save_sync(uid, merged)
-                    added += st["added"]; updated += st["updated"]
-                    unchanged += st["unchanged"]; dropped += st["dropped"]
+                    added += st["added"]
+                    updated += st["updated"]
+                    unchanged += st["unchanged"]
+                    dropped += st["dropped"]
                 detail = (
                     f"涉及 {len(data)} 人；新增 {added} 条，更新 {updated} 条，"
                     f"删除对立项 {dropped} 条，无变化 {unchanged} 条"
@@ -379,7 +405,9 @@ class Main(Star):
 
         imported[sha] = {"name": path.name, "mode": mode_key, "at": int(time.time())}
         if len(imported) > IMPORT_HISTORY_LIMIT:
-            for key in sorted(imported, key=lambda k: imported[k].get("at", 0))[:-IMPORT_HISTORY_LIMIT]:
+            for key in sorted(imported, key=lambda k: imported[k].get("at", 0))[
+                :-IMPORT_HISTORY_LIMIT
+            ]:
                 imported.pop(key, None)
         try:
             self.state.patch(imported=imported, last_import=imported[sha])
@@ -427,7 +455,9 @@ class Main(Star):
     def _resolve_mode(self, mode: str) -> str | None:
         raw = (mode or "").strip().lower()
         if not raw:
-            default = str(self.cfg.get("import_default_mode") or "replace").strip().lower()
+            default = (
+                str(self.cfg.get("import_default_mode") or "replace").strip().lower()
+            )
             return "merge" if default == "merge" else "replace"
         if raw in ("覆盖", "replace", "overwrite"):
             return "replace"
@@ -465,7 +495,7 @@ class Main(Star):
         if hint:
             ordered = [p for p in ordered if hint in p.name]
 
-        already = (self.state.load().get("imported") or {})
+        already = self.state.load().get("imported") or {}
         skipped = 0
         total = len(ordered)
         for path in ordered:
@@ -502,29 +532,55 @@ class Main(Star):
             in_group = False
         return (not in_group) or cfg_bool(self.cfg, "allow_group_cmd", False)
 
-    def _resolve_target(self, event: AstrMessageEvent, qq: str, cmd: str) -> tuple[str, str]:
+    def _resolve_target(
+        self, event: AstrMessageEvent, qq: str, cmd: str
+    ) -> tuple[str, str]:
         """解析指令目标，返回 (uid, 错误提示)；错误提示非空时调用方应中止。
 
-        不带 QQ → 目标是自己，所有人可用；带了 QQ → 只有超级管理员能指向他人。
+        目标来源优先级：@ 用户 > 纯数字参数 > 自己。@ 必须从消息段取，
+        因为文本里的「@昵称」反查不到 QQ 号。
+        不带目标 → 操作自己，所有人可用；指向他人 → 只有超级管理员可以。
         「超级管理员」= event.is_admin()，即 AstrBot 配置里的 admins_id 全局管理员，
         与 PermissionType.ADMIN 判据同源。
         """
         me = _uid_of(event)
         arg = (qq or "").strip()
         usage = f"用法：/{cmd} 或 /{cmd} <QQ号>"
-        if not arg:
+
+        at_ids: list[str] = []
+        try:
+            self_id = str(event.get_self_id() or "")
+            for seg in event.get_messages() or []:
+                if isinstance(seg, _AT_TYPES):
+                    uid = str(getattr(seg, "qq", "") or "")
+                    if uid.isdigit() and uid != self_id:  # @全体成员 / @机器人 不算目标
+                        at_ids.append(uid)
+        except Exception:  # 平台事件实现不全时按"没 @ 人"处理
+            at_ids = []
+        if len(at_ids) > 1:
+            return "", f"一次只能指定一个人，这条消息 @ 了 {len(at_ids)} 个。"
+
+        if at_ids:
+            target = at_ids[0]
+        elif arg.isdigit():
+            target = arg
+        elif not arg:
             return (me, "") if me else ("", usage)
-        if not arg.isdigit():
+        else:
             return "", usage
-        if arg == me:  # 显式报自己的号，等同不带参数
-            return arg, ""
+
+        if target == me:  # 指向自己，等同不带参数
+            return target, ""
         try:
             allowed = bool(event.is_admin())
         except Exception:  # 平台事件实现不全时按无权限处理
             allowed = False
         if allowed:
-            return arg, ""
-        return "", f"只能操作自己的记忆；要看或清别人的，请让超级管理员执行 /{cmd} <QQ号>。"
+            return target, ""
+        return (
+            "",
+            f"只能操作自己的记忆；要看或清别人的，请让超级管理员执行 /{cmd} <QQ号>。",
+        )
 
     async def terminate(self) -> None:
         for task in list(self._tasks):
