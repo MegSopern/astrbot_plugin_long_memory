@@ -1,9 +1,15 @@
 name: astrbot_plugin_long_memory
 display_name: 长期记忆
-desc: 按QQ号记录用户的稳定偏好，跨会话与/reset保留；支持导出/导入zip。
+desc: 记住每位用户的长期偏好：自动识别并保存喜好、称呼、习惯等信息，跨会话；无需额外调用模型，支持按QQ号管理、导出与导入，轻量且注重隐私。
 author: "MegSopern"
-version: 0.4.0
+version: 1.0.0
 repo: "https://github.com/MegSopern/astrbot_plugin_long_memory"
 astrbot_version: ">=4.24.0"
 support_platforms:
   - aiocqhttp
+social_link: https://github.com/MegSopern
+tags:
+  - 长期记忆
+  - 跨会话
+  - 用户偏好
+  - 爱好
