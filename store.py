@@ -1,7 +1,6 @@
 """存储层：文件版。一人一文件，落在 StarTools.get_data_dir() 指向的插件数据目录。
 
-原子性：所有写入走 `.tmp` → fsync → os.replace，保证「要么旧的、要么新的」，
-不会出现半截 JSON。Windows 上目标被占用时 os.replace 会 PermissionError，做退避重试。
+原子性：所有写入走 `.tmp` → fsync → os.replace，不会出现半截 JSON。Windows 上目标被占用时 os.replace 会 PermissionError，做退避重试。
 """
 
 from __future__ import annotations

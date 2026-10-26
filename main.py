@@ -226,21 +226,57 @@ class Main(Star):
         if err:
             yield event.plain_result(err)
             return
-        items = self.store.load_sync(target)
-        if not items:
-            yield event.plain_result(f"{target} 还没有记忆。")
+        try:
+            items = self.store.load_sync(target)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            logger.warning(
+                "%s load memory failed for %s: %s: %s",
+                TAG,
+                target,
+                type(exc).__name__,
+                exc,
+            )
+            yield event.plain_result("读取记忆失败，请稍后再试；详情请看日志。")
             return
-        ordered = sort_for_display(items)
+        target_label = self._target_label(event, target)
+        if not items:
+            yield event.plain_result(f"{target_label} 还没有记忆。")
+            return
+        try:
+            ordered = sort_for_display(items)
+        except (TypeError, ValueError, KeyError) as exc:
+            logger.warning(
+                "%s sort memory failed for %s: %s: %s",
+                TAG,
+                target,
+                type(exc).__name__,
+                exc,
+            )
+            yield event.plain_result("记忆数据格式异常，请稍后再试；详情请看日志。")
+            return
         shown = ordered[:DISPLAY_LIMIT]
         lines = []
         for idx, mem in enumerate(shown, 1):
-            suffix = f" ×{mem['hits']}" if mem.get("hits", 1) > 1 else ""
-            lines.append(f"{idx}. {mem['text']}{suffix}")
+            text = mem.get("text")
+            if not isinstance(text, str) or not text:
+                continue
+            hits = mem.get("hits", 1)
+            suffix = (
+                f" ×{hits}"
+                if isinstance(hits, int) and not isinstance(hits, bool) and hits > 1
+                else ""
+            )
+            lines.append(f"{idx}. {text}{suffix}")
+        if not lines:
+            yield event.plain_result(f"{target_label} 还没有可展示的记忆。")
+            return
         total = len(items)
         if total <= DISPLAY_LIMIT:
-            head = f"长期记忆（{target} · {total} 条）"
+            head = f"记忆【{target_label} · {total} 条】"
         else:
-            head = f"长期记忆（{target} · 共 {total} 条，仅显示前 {DISPLAY_LIMIT} 条）"
+            head = (
+                f"记忆【{target_label} · 共 {total} 条，仅显示前 {DISPLAY_LIMIT} 条】"
+            )
         yield event.plain_result(head + "\n" + "\n".join(lines))
 
     @filter.command("忘记")
@@ -258,7 +294,9 @@ class Main(Star):
             return
         await self._cancel_extract_tasks(target)
         count = await self.store.clear(target)
-        yield event.plain_result(f"已清除 {count} 条记忆。")
+        yield event.plain_result(
+            f"已清除{self._target_label(event, target)}：\n{count}条记忆。"
+        )
 
     # ── 导出 / 导入 / 清空 ──────────────────────────────────────────
     @filter.command("导出")
@@ -541,6 +579,28 @@ class Main(Star):
         except Exception:
             in_group = False
         return (not in_group) or cfg_bool(self.cfg, "allow_group_cmd", False)
+
+    def _target_label(self, event: AstrMessageEvent, target: str) -> str:
+        """返回用于命令反馈的「昵称(QQ号)」标签。"""
+        nickname = ""
+        if target == _uid_of(event):
+            try:
+                nickname = str(event.get_sender_name() or "").strip()
+            except Exception:
+                nickname = ""
+        else:
+            try:
+                for seg in event.get_messages() or []:
+                    if (
+                        isinstance(seg, _AT_TYPES)
+                        and str(getattr(seg, "qq", "") or "") == target
+                    ):
+                        nickname = str(getattr(seg, "name", "") or "").strip()
+                        if nickname:
+                            break
+            except Exception:
+                nickname = ""
+        return f"{nickname or target}({target})"
 
     def _resolve_target(
         self, event: AstrMessageEvent, qq: str, cmd: str
